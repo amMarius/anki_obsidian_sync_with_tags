@@ -6,6 +6,8 @@ The main changes include:
 2) You can enable/disable the differential sync from the Config, if needed.
 3) All fields are included in the card.
 
+For personal reasons, I must mention that all changes were made with AI. This was a modification I needed for my own PKM + SRS combo and I saved it here so that I won't lose it.
+
 
 ## Demonstration
 
