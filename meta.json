@@ -1,10 +1,1 @@
-{
-    "name": "Obsidian Sync (Differential) by M Saajeel ⭐",
-    "version": "0.1.0",
-    "description": "Differentially syncs Anki decks and cards to a specified Obsidian vault folder, creating Markdown files and MOCs.",
-    "author": "Mohd Sajeel Memon",
-    "support_url": "",
-    "homepage_url": "",
-    "package": "anki_obsidian_sync",
-    "anki_version_minimum": "2.1.49"
-}
+{"name": "Obsidian Sync (Custom Tag Patch)", "mod": 1745843476, "min_point_version": 1, "max_point_version": 250200, "branch_index": 0, "disabled": false, "config": {"force_overwrite": true, "obsidianSyncPath": "/home/marius_mrn_/Documents/PKM/PKM's SRS"}}
