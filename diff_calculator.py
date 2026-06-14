@@ -18,15 +18,25 @@ def calculate_diff(anki_state: Dict[str, Any], obsidian_state: Dict[str, Any]) -
     Compares the note-centric Anki and Obsidian states and returns actions.
     Uses custom MOC naming convention and links MOCs hierarchically.
     """
-    print("Calculating differences between Anki and Obsidian states (Note-Centric)...")
+    # Fetch the toggle dynamically from the add-on configuration
+    try:
+        from aqt import mw
+        # Replaces 'Anki_Obsidian_Custom_Sync' with your actual folder name if different
+        addon_config = mw.addonManager.getConfig(__name__.split('.')[0])
+        force_overwrite = addon_config.get("force_overwrite", False) if addon_config else False
+    except Exception:
+        force_overwrite = False
+
+    mode_string = "FORCED OVERWRITE MODE" if force_overwrite else "SMART SYNC MODE"
+    print(f"Calculating differences between Anki and Obsidian states ({mode_string})...")
 
     actions = {
         "folders_to_create": [], "folders_to_delete": [],
         "notes_to_create": [], "notes_to_update": [], "notes_to_delete": [],
         "images_to_copy": set(), "images_to_delete": set(),
-        "mocs_to_create": set(), # MOCs that need to be created
-        "mocs_to_update": set(), # Existing MOCs that need content update
-        "mocs_to_delete": set()  # MOCs that should no longer exist
+        "mocs_to_create": set(), 
+        "mocs_to_update": set(), 
+        "mocs_to_delete": set()  
     }
 
     # --- Folder Diff ---
@@ -43,11 +53,10 @@ def calculate_diff(anki_state: Dict[str, Any], obsidian_state: Dict[str, Any]) -
         if anki_note_id is not None:
             if anki_note_id not in obs_notes_by_anki_id:
                  obs_notes_by_anki_id[anki_note_id] = {"obs_rel_path": rel_path, **obs_note_data}
-            # else: print(f"Warning: Duplicate Obsidian file found for Anki Note ID {anki_note_id}. Ignoring {rel_path}")
 
     all_required_anki_images = set()
     anki_note_id_to_deck_path = {}
-    decks_with_notes = set() # Track decks that directly contain notes
+    decks_with_notes = set() 
 
     # --- Iterate Anki State ---
     for deck_path, deck_data in anki_state.items():
@@ -66,9 +75,14 @@ def calculate_diff(anki_state: Dict[str, Any], obsidian_state: Dict[str, Any]) -
                 obs_rel_path = obs_note_match["obs_rel_path"]
                 obs_rel_paths_processed.add(obs_rel_path)
                 needs_move = (obs_rel_path != target_rel_path)
-                anki_mod_time = anki_note_data.get("note_mod_time")
-                obs_mod_time = obs_note_match.get("anki_note_mod")
-                needs_update = (anki_mod_time is None or obs_mod_time is None or anki_mod_time > obs_mod_time)
+                
+                # --- TOGGLE-ABLE UPDATE LOGIC ---
+                if force_overwrite:
+                    needs_update = True
+                else:
+                    anki_mod_time = anki_note_data.get("note_mod_time")
+                    obs_mod_time = obs_note_match.get("anki_note_mod")
+                    needs_update = (anki_mod_time is None or obs_mod_time is None or anki_mod_time > obs_mod_time)
 
                 if needs_update or needs_move:
                     actions["notes_to_update"].append({
@@ -96,7 +110,7 @@ def calculate_diff(anki_state: Dict[str, Any], obsidian_state: Dict[str, Any]) -
     print(f"Notes to update/move: {len(actions['notes_to_update'])}")
     print(f"Notes to delete: {len(actions['notes_to_delete'])}")
 
-    # --- Image Diff (Same) ---
+    # --- Image Diff ---
     obs_assets = obsidian_state.get("asset_files", set())
     actions["images_to_copy"] = all_required_anki_images - obs_assets
     actions["images_to_delete"] = obs_assets - all_required_anki_images
@@ -104,31 +118,23 @@ def calculate_diff(anki_state: Dict[str, Any], obsidian_state: Dict[str, Any]) -
     print(f"Images to delete: {len(actions['images_to_delete'])}")
 
     # --- MOC Diff ---
-    # Identify which MOCs *should* exist based on Anki state
-    expected_mocs = {ROOT_MOC_FILENAME} # Root MOC always expected (will be updated if changes)
+    expected_mocs = {ROOT_MOC_FILENAME} 
     for deck_path, deck_data in anki_state.items():
         if deck_path == "_root_": continue
-        # Only expect a deck MOC if the deck directly contains notes
         if deck_path in decks_with_notes:
             moc_filename = deck_data.get("moc_filename")
             if moc_filename:
                 expected_mocs.add(os.path.join(deck_path, moc_filename).replace('\\', '/'))
 
-    # Compare with MOCs found in Obsidian
     obs_mocs = obsidian_state.get("moc_files", set())
     actions["mocs_to_create"] = expected_mocs - obs_mocs
     actions["mocs_to_delete"] = obs_mocs - expected_mocs
-    # All expected MOCs that also exist in Obsidian might need an update
     actions["mocs_to_update"] = expected_mocs.intersection(obs_mocs)
 
-    # Always update root MOC if there were *any* changes to notes/folders/images
-    # This is simpler than tracking exact hierarchy changes.
     if any(act for k, act_list in actions.items() if k != "mocs_to_update" for act in act_list):
          actions["mocs_to_update"].add(ROOT_MOC_FILENAME)
-         # Ensure root isn't also marked for creation if it exists
          if ROOT_MOC_FILENAME in actions["mocs_to_create"]:
              actions["mocs_to_create"].discard(ROOT_MOC_FILENAME)
-
 
     print(f"MOCs to create: {len(actions['mocs_to_create'])}")
     print(f"MOCs to update: {len(actions['mocs_to_update'])}")
