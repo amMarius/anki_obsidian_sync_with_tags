@@ -29,7 +29,6 @@ def ensure_dir_exists(dir_path: Path):
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # --- Phase 3: Deletions & Folder Structure ---
-# (No changes needed here)
 def execute_deletions_and_folders(actions: Dict[str, Any], obsidian_base_path: Path, assets_rel_path: str):
     print("Executing Phase 3: Deletions and Folder Creation (Note-Centric)...")
     assets_abs_path = obsidian_base_path / assets_rel_path
@@ -80,75 +79,101 @@ def execute_deletions_and_folders(actions: Dict[str, Any], obsidian_base_path: P
             except Exception as e: print(f"Error deleting MOC file {moc_rel_path}: {e}")
         mw.progress.finish(); print(f"Deleted {mocs_deleted} obsolete MOC files.")
 
-    # 5. Delete Obsolete Folders (Deferred)
     print("Folder deletion logic is currently deferred.")
     print("Phase 3 execution complete.")
 
 # --- Phase 4: Content Conversion & File Writing (Note-Centric) ---
-# (No changes needed here)
-def copy_required_media(
-    required_media: Set[str], media_to_copy_set: Set[str],
+
+def copy_required_images(
+    required_images: Set[str], images_to_copy_set: Set[str],
     anki_media_path: str, obsidian_assets_path: Path ):
-    """Copies all required media files (images, audio, video, etc.) to Obsidian assets folder."""
-    if not required_media: return
+    if not required_images: return
     ensure_dir_exists(obsidian_assets_path)
-    for media_filename in required_media:
-        if media_filename not in media_to_copy_set: continue
-        source_path = Path(anki_media_path) / media_filename
-        dest_path = obsidian_assets_path / media_filename
+    for img_filename in required_images:
+        if img_filename not in images_to_copy_set: continue
+        source_path = Path(anki_media_path) / img_filename; dest_path = obsidian_assets_path / img_filename
         if source_path.is_file():
             if not dest_path.exists():
-                try: 
-                    shutil.copy2(source_path, dest_path)
-                    print(f"Copied media file: {media_filename}")
-                except Exception as e: 
-                    print(f"Error copying media {media_filename}: {e}")
-            media_to_copy_set.discard(media_filename)
-        else: 
-            print(f"Warning: Source media not found in Anki media: {source_path}")
-            media_to_copy_set.discard(media_filename)
-
-# Backwards compatibility alias
-copy_required_images = copy_required_media
+                try: shutil.copy2(source_path, dest_path)
+                except Exception as e: print(f"Error copying image {img_filename}: {e}")
+            images_to_copy_set.discard(img_filename)
+        else: print(f"Warning: Source image not found in Anki media: {source_path}"); images_to_copy_set.discard(img_filename)
 
 def calculate_content_hash(content: str) -> str: return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 def execute_note_writes(
     actions: Dict[str, Any], obsidian_base_path: Path, assets_rel_path: str ):
-    print("Executing Phase 4: Note File Writing...")
+    print("Executing Phase 4: Note File Writing (With Dynamic Fields & Hierarchical Tags Support)...")
     notes_to_create = actions.get("notes_to_create", []); notes_to_update = actions.get("notes_to_update", [])
     notes_to_process = notes_to_create + notes_to_update
     if not notes_to_process: print("No notes to create or update."); return
     anki_media_path = mw.col.media.dir(); obsidian_assets_abs_path = obsidian_base_path / assets_rel_path
     images_to_copy_set = actions.get("images_to_copy", set()).copy(); notes_written = 0
     total_notes = len(notes_to_process); mw.progress.start(label="Writing Note Files...", max=total_notes, immediate=True)
+    
     for i, note_action in enumerate(notes_to_process):
         anki_note_data = note_action["anki_note_data"]; target_rel_path = note_action["target_rel_path"]
         target_abs_path = obsidian_base_path / target_rel_path; note_id = anki_note_data["note_id"]
         note_type_name = anki_note_data["note_type_name"]; fields = anki_note_data["relevant_fields"]
         required_images = anki_note_data.get("required_images", set()); card_ids = anki_note_data.get("card_ids", [])
+        
+        anki_tags = anki_note_data.get("tags", [])
+        if not anki_tags and "tags" in note_action:
+            anki_tags = note_action["tags"]
+
         old_abs_path = None
         if "obs_note_data" in note_action and note_action.get("needs_move", False):
             old_rel_path = note_action["obs_note_data"]["obs_rel_path"]; old_abs_path = obsidian_base_path / old_rel_path
             print(f"DEBUG: Note {note_id} needs move from {old_rel_path} to {target_rel_path}")
-        copy_required_media(required_images, images_to_copy_set, anki_media_path, obsidian_assets_abs_path)
-        markdown_body = combine_fields_to_markdown(fields, note_type_name, note_id)
+            
+        copy_required_images(required_images, images_to_copy_set, anki_media_path, obsidian_assets_abs_path)
+        
+        if fields and isinstance(fields, dict):
+            markdown_body_parts = []
+            for field_name, field_html in fields.items():
+                converted_val = convert_html_to_markdown(field_html)
+                if converted_val.strip():
+                    markdown_body_parts.append(f"## {field_name}\n{converted_val}")
+            markdown_body = "\n\n".join(markdown_body_parts) if markdown_body_parts else combine_fields_to_markdown(fields, note_type_name, note_id)
+        else:
+            markdown_body = combine_fields_to_markdown(fields, note_type_name, note_id)
+            
         content_hash = calculate_content_hash(markdown_body)
-        frontmatter_dict = {"anki_note_id": note_id, "anki_note_mod": anki_note_data["note_mod_time"], "content_hash": content_hash}
+        
+        frontmatter_dict = {
+            "anki_note_id": note_id, 
+            "anki_note_mod": anki_note_data["note_mod_time"], 
+            "content_hash": content_hash
+        }
+        
+        # --- ENHANCED NESTED TAGS CONVERSION ---
+        if anki_tags:
+            processed_tags = []
+            for tag in anki_tags:
+                tag_str = str(tag)
+                # Convert Anki structural nested separators "::" into standard Obsidian nested tag slashes "/"
+                converted_tag = tag_str.replace("::", "/")
+                # Normalize multi-word space parameters safely for clean property scanning
+                cleaned_tag = converted_tag.replace(" ", "_")
+                processed_tags.append(cleaned_tag)
+            frontmatter_dict["tags"] = processed_tags
+
         try:
-            if not YAML_AVAILABLE: frontmatter_yaml = f"# YAML Frontmatter requires PyYAML library (missing)\n# anki_note_id: {note_id}\n"
-            else: frontmatter_yaml = yaml.dump(frontmatter_dict, sort_keys=False, allow_unicode=True, default_flow_style=False)
-        except Exception as e: print(f"Error dumping YAML for {target_rel_path}: {e}"); frontmatter_yaml = f"# Error generating YAML: {e}\n"
+            if not YAML_AVAILABLE: 
+                frontmatter_yaml = f"# YAML Frontmatter requires PyYAML library (missing)\n# anki_note_id: {note_id}\n"
+            else: 
+                frontmatter_yaml = yaml.dump(frontmatter_dict, sort_keys=False, allow_unicode=True, default_flow_style=False)
+        except Exception as e: 
+            print(f"Error dumping YAML for {target_rel_path}: {e}"); frontmatter_yaml = f"# Error generating YAML: {e}\n"
+            
         final_content = f"---\n{frontmatter_yaml}---\n\n{markdown_body}"
         try:
             if old_abs_path and old_abs_path.is_file(): print(f"DEBUG: Deleting old file for move: {old_abs_path}"); old_abs_path.unlink()
             ensure_dir_exists(target_abs_path.parent)
-            print(f"DEBUG: Attempting to write note to: {target_abs_path}") # <-- Added log
             with open(target_abs_path, 'w', encoding='utf-8') as f: f.write(final_content)
-            print(f"DEBUG: Successfully wrote note to: {target_abs_path}") # <-- Added log
             notes_written += 1; mw.progress.update(label=f"Writing note: {target_rel_path}", value=i + 1)
         except Exception as e:
-            print(f"ERROR: Failed to write note file {target_rel_path} to {target_abs_path}. Exception: {e}") # <-- Enhanced error log
+            print(f"ERROR: Failed to write note file {target_rel_path} to {target_abs_path}. Exception: {e}") 
             mw.progress.update(label=f"Error writing: {target_rel_path}", value=i + 1)
     mw.progress.finish(); print(f"Phase 4 complete. Wrote/Updated {notes_written} note files.")
 
@@ -178,40 +203,30 @@ def get_note_display_text(note_id: int, anki_state: Dict[str, Any]) -> str:
             return clean_moc_link_text(display_text)
     return f"Note_{note_id}"
 
-# Helper function for numerical sorting of MOC links
 def get_moc_sort_key(note_tuple):
     display_text = note_tuple[0]
     match = re.match(r'^(\d+)\.', display_text)
     if match:
-        try:
-            return int(match.group(1))
-        except ValueError:
-            # Handle potential conversion errors if needed, though regex should ensure digits
-            return sys.maxsize # Sort non-numeric prefixes last
-    else:
-        # Fallback for notes without a leading number prefix
-        return sys.maxsize # Sort non-numeric prefixes last
+        try: return int(match.group(1))
+        except ValueError: return sys.maxsize 
+    else: return sys.maxsize 
 
 def _generate_root_moc_recursive(deck_path: str, anki_state: Dict[str, Any], current_level: int) -> List[str]:
-    """Recursive helper for the root MOC's hierarchical structure."""
     lines = []
     deck_data = anki_state.get(deck_path)
     if not deck_data: return lines
 
     deck_name_part = deck_data.get("anki_deck_name", deck_path.split('/')[-1])
-    heading_level = min(current_level + 1, 6) # Start at H2 for top-level
+    heading_level = min(current_level + 1, 6) 
     heading_prefix = "#" * heading_level
-    lines.append(f"{heading_prefix} {deck_name_part}") # Just the heading text
+    lines.append(f"{heading_prefix} {deck_name_part}") 
 
-    # Add link to the deck's specific MOC *if* it has notes
     deck_has_notes = bool(deck_data.get("notes"))
     if deck_has_notes:
         deck_moc_filename = deck_data.get("moc_filename", "_unknown_index.md")
         moc_link = Path(deck_path).joinpath(deck_moc_filename).as_posix()
-        # Add the link on the line below the heading
-        lines.append(f"- [[{moc_link}|{deck_name_part} MOC]]") # Link to the deck MOC
+        lines.append(f"- [[{moc_link}|{deck_name_part} MOC]]") 
 
-    # Recursively add subdecks
     subdeck_paths = sorted(list(deck_data.get("subdeck_paths", set())))
     for sub_path in subdeck_paths:
         lines.extend(_generate_root_moc_recursive(sub_path, anki_state, current_level + 1))
@@ -221,32 +236,28 @@ def _generate_root_moc_recursive(deck_path: str, anki_state: Dict[str, Any], cur
 def generate_moc_content(
     moc_rel_path_str: str,
     anki_state: Dict[str, Any],
-    obsidian_base_path: Path # Unused but kept for signature consistency
+    obsidian_base_path: Path 
     ) -> str:
     content = []
     moc_rel_path = Path(moc_rel_path_str)
     is_root_moc = (moc_rel_path.name == ROOT_MOC_FILENAME)
 
     if is_root_moc:
-        # --- Root MOC (Hierarchical Headings + Links to Deck MOCs) ---
         content.append(f"# {anki_state['_root_']['anki_deck_name']}")
         content.append("")
         top_level_deck_paths = sorted(list(anki_state["_root_"].get("subdeck_paths", set())))
         if not top_level_deck_paths: content.append("- (No decks found)")
         else:
             for deck_path in top_level_deck_paths:
-                # Start recursion at level 1 (results in H2)
                 content.extend(_generate_root_moc_recursive(deck_path, anki_state, 1))
-                content.append("") # Add space between top-level deck sections
+                content.append("") 
     else:
-        # --- Deck/Subdeck MOC (Only Notes) ---
         deck_rel_path_str = moc_rel_path.parent.as_posix()
         if deck_rel_path_str == ".": deck_rel_path_str = ""
 
         deck_data = anki_state.get(deck_rel_path_str)
         if deck_data:
             deck_name = deck_data.get("anki_deck_name", deck_rel_path_str.split('/')[-1])
-            # No main heading needed if it only lists notes? Or keep it? Let's keep it.
             content.append(f"# Notes in Deck: {deck_name}")
             content.append("\n## Notes\n")
             note_links = []
@@ -256,7 +267,6 @@ def generate_moc_content(
                 note_filename = note_data.get("target_filename", f"UnknownNote_{note_id}.md")
                 note_rel_link = Path(deck_rel_path_str).joinpath(note_filename).as_posix()
                 note_links.append((display_text, f"- [[{note_rel_link}|{display_text}]]"))
-            # Sort using the custom numerical key function
             note_links.sort(key=get_moc_sort_key)
             if not note_links: content.append("- (No notes directly in this deck)")
             else: content.extend([link for _, link in note_links])
@@ -271,11 +281,10 @@ def execute_moc_generation(
     anki_state: Dict[str, Any],
     obsidian_base_path: Path
     ):
-    """Handles creating/updating/deleting MOC files based on new rules."""
     print("Executing Phase 5: MOC Generation (Hierarchical Root)...")
     mocs_to_create = actions.get("mocs_to_create", set())
     mocs_to_update = actions.get("mocs_to_update", set())
-    mocs_to_process = mocs_to_create.union(mocs_to_update) # Files to write/overwrite
+    mocs_to_process = mocs_to_create.union(mocs_to_update) 
 
     if not mocs_to_process: print("No MOC files need updating or creation."); return
 
