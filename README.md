@@ -1,7 +1,5 @@
 # Obsidian Sync (Differential) By M Saajeel ⭐ : Anki ⇌ Obsidian Sync: Bridge Your Flashcards and Notes!
 
-<a href="https://ankiweb.net/shared/info/1162061440?cb=1745843664504" target="_blank" style="display: inline-block; padding: 10px 20px; font-size: 16px; font-weight: bold; color: white; background-color: #007bff; text-align: center; border-radius: 5px; text-decoration: none;">Get it on AnkiWeb</a>
-
 # THIS IS JUST A QUICK, PERSONAL MODIFICATION. The details below are no longer accurate.
 The main changes include:
 1) Tags are now synced from Anki to Obsidian (as properties), converting nexted tags accordingly (X::Y -> X/Y)
