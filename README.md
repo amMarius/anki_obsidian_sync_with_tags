@@ -2,7 +2,7 @@
 
 # THIS IS JUST A QUICK, PERSONAL MODIFICATION. The details below are no longer accurate.
 The main changes include:
-1) Tags are now synced from Anki to Obsidian (as properties), converting nexted tags accordingly (X::Y -> X/Y)
+1) Tags are now synced from Anki to Obsidian (as properties), converting nested tags accordingly (X::Y -> X/Y)
 2) You can enable/disable the differential sync from the Config, if needed.
 3) All fields are included in the card.
 
